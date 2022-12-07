@@ -1,2 +1,2 @@
 # Seam-Carving
-Liquid Re-scaling of Images
+Liquid re-scaling of Images
