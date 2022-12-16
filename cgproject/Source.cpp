@@ -7,8 +7,6 @@
 using namespace cv;
 using namespace std;
 
-set<int> Set;
-
 double getEnergy(Mat mat, int i, int j, int size) {
     if (j < 0) {
         return mat.at<double>(i, 0);
@@ -19,16 +17,15 @@ double getEnergy(Mat mat, int i, int j, int size) {
     return mat.at<double>(i, j);
 }
 
+// https://docs.opencv.org/3.4/d2/d2c/tutorial_sobel_derivatives.html
 Mat generateEnergyMap(Mat& img) {
-
-    // Gaussian Blue to reduce noise
+    // Gaussian Blur to reduceWidth noise
     Mat blurImage;
     GaussianBlur(img, blurImage, Size(3, 3), 0, 0, BORDER_DEFAULT);
 
     // Grayscale
     Mat grayImage;
     cvtColor(blurImage, grayImage, COLOR_BGR2GRAY);
-
 
     // Sobel operator to compute the gradient of the image
     Mat xGradient, yGradient;
@@ -48,7 +45,6 @@ Mat generateEnergyMap(Mat& img) {
     Mat energyImage;
     gradient.convertTo(energyImage, CV_64F, 1.0 / 255.0);
 
-    namedWindow("Energy Map", WINDOW_AUTOSIZE);
     imshow("Energy Map", energyImage);
 
     return energyImage;
@@ -70,7 +66,7 @@ Mat generateCumulativeMap(Mat& eImg, Size_<int> size) {
                     getEnergy(cMap, i - 1, j - 1, size.width),
                     getEnergy(cMap, i - 1, j, size.width),
                     getEnergy(cMap, i - 1, j + 1, size.width)
-                    });
+                });
         }
     }
 
@@ -78,24 +74,20 @@ Mat generateCumulativeMap(Mat& eImg, Size_<int> size) {
 }
 
 vector<int> findSeam(Mat& cMap, Size_<int> size) {
-    vector<int> optPath;
+    vector<int> optPath(size.height);
     double Min = 1e9;
     int j = -1; // Min Index ie index at which Min val occurs
 
-    for (int i = 1; i < cMap.row(0).cols; ++i) {
-        if (Set.find(i) != Set.end()) {
-            continue;
-        }
-        double val = cMap.at<double>(0, i);
+    for (int i = 0; i < size.width; ++i) {
+        double val = cMap.at<double>(size.height - 1, i);
         if (val < Min) {
             Min = val;
             j = i;
         }
     }
-    Set.insert(j);
-    optPath.push_back(j);
+    optPath[size.height - 1] = j;
 
-    for (int i = 1; i < size.height; i++) {
+    for (int i = size.height - 2; i >= 0; i--) {
         double a = getEnergy(cMap, i, j - 1, size.width),
             b = getEnergy(cMap, i, j, size.width),
             c = getEnergy(cMap, i, j + 1, size.width);
@@ -108,27 +100,28 @@ vector<int> findSeam(Mat& cMap, Size_<int> size) {
         }
         if (j < 0) j = 0;
         else if (j >= size.width) j = size.width - 1;
-        optPath.push_back(j);
+
+        optPath[i] = j;
     }
 
     return optPath;
 }
 
-void generateSeams(Mat& cMap, Mat& eMap, Size_<int> size) {
-    for (int j = 0; j < 50; ++j) {
-        vector<int> path = findSeam(cMap, size);
-        for (int i = 0; i < eMap.rows; i++) {
-            eMap.at<double>(i, path[i]) = 1;
+void reduceWidth(Mat& img, vector<int> path, Size_<int> size) {
+    for (int i = 0; i < size.height; i++) {
+        int k = 0;
+        for (int j = 0; j < size.width; ++j) {
+            if (j == path[i]) continue;
+            img.at<Vec3b>(i, k++) = img.at<Vec3b>(i, j);
         }
-        namedWindow("Seam on Energy Map", WINDOW_AUTOSIZE);
-        imshow("Seam on Energy Map", eMap);
-
-        waitKey(0);
     }
+    img = img.colRange(0, size.width - 1);
+
+    imshow("Reduced Image", img);
 }
 
 int main() {
-    string filename = "seam.jpg";
+    string filename = "original.jpg";
 
     Mat image = imread(filename);
     if (image.empty()) {
@@ -138,14 +131,22 @@ int main() {
 
     Size_<int> imgSize = Size(image.cols, image.rows);
 
-    namedWindow("Original Image", WINDOW_AUTOSIZE);
     imshow("Original Image", image);
 
+    for (int i = 0; i < 150; i++) {
+        Mat energyMap = generateEnergyMap(image);
+        Mat cumulativeMap = generateCumulativeMap(energyMap, imgSize);
+        vector<int> path = findSeam(cumulativeMap, imgSize);
+      
+        for (int j = 0; j < energyMap.rows; j++) {
+            energyMap.at<double>(j, path[j]) = 1;
+        }
+        imshow("Seam Path", energyMap);
 
-    Mat energyMap = generateEnergyMap(image);
-    Mat cumulativeMap = generateCumulativeMap(energyMap, imgSize);
-    generateSeams(cumulativeMap, energyMap, imgSize);
-
-
+        waitKey(50);
+        reduceWidth(image, path, imgSize);
+        imgSize.width--;
+    }
+    waitKey(0);
     return 0;
 }
